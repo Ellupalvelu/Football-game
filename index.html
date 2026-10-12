@@ -3,221 +3,239 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Football Game</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ultimate Football 3D</title>
 <style>
-*{box-sizing:border-box}
-body{margin:0;background:#267b36;color:white;font-family:Arial;overflow:hidden;touch-action:none}
-canvas{width:100vw;height:100dvh;display:block}
-#top{position:absolute;top:8px;left:8px;right:8px;display:flex;gap:5px;flex-wrap:wrap}
-button{background:#102e20;color:white;border:1px solid white;border-radius:9px;padding:10px;font-weight:bold}
-#controls{position:absolute;bottom:15px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:end}
-.pad{display:grid;grid-template-columns:45px 45px 45px;gap:4px}
-.pad button{height:45px;padding:0;font-size:19px}
-.up{grid-column:2}.left{grid-column:1}.down{grid-column:2}.right{grid-column:3}
-.actions{display:flex;gap:5px}.actions button{height:55px}
-#hint{position:absolute;top:58px;left:8px;background:#102e20cc;padding:7px;border-radius:7px;font-size:12px}
-#msg{position:absolute;top:45%;width:100%;text-align:center;font-size:25px;font-weight:bold;pointer-events:none}
+body{margin:0;background:#071522;color:white;font-family:Arial;text-align:center}
+h2{margin:10px;color:#baff42}
+canvas{width:100%;max-width:960px;display:block;margin:auto;touch-action:none}
+button,select{padding:12px;margin:4px;border:0;border-radius:10px;background:#203b52;color:white;font-weight:bold}
+button:active{background:#baff42;color:black}
+#score{font-size:30px;font-weight:bold}
+.controls{max-width:500px;margin:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="top">
- <button id="score">BLUE 0 - 0 RED</button>
- <button id="fp">First Person: ON</button>
- <button id="switch">Switch Player</button>
- <button id="restart">Restart</button>
+<h2>⚽ ULTIMATE FOOTBALL 3D</h2>
+<div id="score">BLUE 0 - 0 RED</div>
+<div id="clock">00:00</div>
+<canvas id="game" width="900" height="520"></canvas>
+<div>
+<button onclick="pass()">PASS</button>
+<button onclick="shoot()">SHOOT ⚡</button>
+<button onclick="switchPlayer()">SWITCH PLAYER</button>
+<button onclick="sprint=!sprint">SPRINT 🏃</button>
+<button onclick="restart()">RESTART ↻</button>
 </div>
-<div id="hint">Swipe to look • WASD/arrows to move • Space to shoot • F changes view</div>
-<div id="msg">KICK OFF!</div>
-<div id="controls">
- <div class="pad">
-  <button class="up" data-k="up">▲</button>
-  <button class="left" data-k="left">◀</button>
-  <button class="down" data-k="down">▼</button>
-  <button class="right" data-k="right">▶</button>
- </div>
- <div class="actions">
-  <button id="pass">PASS</button>
-  <button id="shoot">SHOOT</button>
-  <button id="sprint">SPRINT</button>
- </div>
+<div class="controls">
+<button onclick="move(0,-1)">▲</button>
+<button onclick="move(0,-1)">↑</button>
+<button onclick="move(0,-1)">▲</button>
+<button onclick="move(-1,0)">◀</button>
+<button onclick="move(0,1)">▼</button>
+<button onclick="move(1,0)">▶</button>
 </div>
+<p>Keyboard: WASD / arrows · E = pass · SPACE = shoot · Q = switch</p>
 <script>
-const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
-let W,H,scale,keys={},held={},first=true,yaw=0,pitch=0;
-let blueScore=0,redScore=0,active=0,players=[],ball,drag=null,last=0,msgTime=0,sprinting=false;
-const FW=1000,FH=600;
-function resize(){W=innerWidth;H=innerHeight;canvas.width=W*devicePixelRatio;canvas.height=H*devicePixelRatio;canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0)}
-onresize=resize;resize();
-function say(t){document.getElementById('msg').textContent=t;msgTime=1.2}
-function updateScore(){document.getElementById('score').textContent=`BLUE ${blueScore} - ${redScore} RED`}
-function distance(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
-function newPlayer(team,n,x,y){return {team,n,x,y,r:13}}
-function reset(){
- players=[];
- for(let i=0;i<5;i++){
-  players.push(newPlayer('blue',i,240+(i%2)*90,100+i*95));
-  players.push(newPlayer('red',i,760-(i%2)*90,100+i*95));
+const c=document.getElementById("game");
+const ctx=c.getContext("2d");
+const W=900,H=520;
+let blue=[],red=[],ball,scoreB=0,scoreR=0;
+let selected=0,sprint=false,keys={},elapsed=0,paused=false;
+let last=0;
+
+function player(team,x,y,n){
+ return {team,x,y,n,vx:0,vy:0,homeX:x,homeY:y};
+}
+function restart(){
+ blue=[
+ player(0,160,260,1),
+ player(0,300,130,2),
+ player(0,300,390,3),
+ player(0,420,210,4),
+ player(0,420,310,5)
+ ];
+ red=[
+ player(1,740,260,1),
+ player(1,600,130,2),
+ player(1,600,390,3),
+ player(1,500,210,4),
+ player(1,500,310,5)
+ ];
+ ball={x:W/2,y:H/2,vx:0,vy:0,owner:0};
+ scoreB=scoreR=elapsed=0;selected=0;paused=false;
+ blue[0].x=430;blue[0].y=260;
+ updateScore();
+}
+function updateScore(){
+ document.getElementById("score").textContent=
+ "BLUE "+scoreB+" - "+scoreR+" RED";
+}
+function move(dx,dy){
+ let p=blue[selected];
+ let s=sprint?35:20;
+ p.x=Math.max(25,Math.min(W-25,p.x+dx*s));
+ p.y=Math.max(25,Math.min(H-25,p.y+dy*s));
+ if(ball.owner===selected){
+ ball.x=p.x+14;ball.y=p.y+4;
  }
- ball={x:500,y:300,vx:0,vy:0,owner:null,r:8};
- active=0;yaw=0;pitch=0;say('KICK OFF!');
 }
-function nearest(team){
- let ids=players.map((p,i)=>({p,i})).filter(o=>!team||o.p.team===team);
- ids.sort((a,b)=>distance(a.p,ball)-distance(b.p,ball));
- return ids[0].i;
-}
-function switchPlayer(){active=nearest('blue');say('PLAYER '+(active+1))}
-document.getElementById('switch').onclick=switchPlayer;
-document.getElementById('restart').onclick=()=>{blueScore=redScore=0;updateScore();reset()};
-document.getElementById('fp').onclick=()=>{
- first=!first;
- document.getElementById('fp').textContent='First Person: '+(first?'ON':'OFF');
-};
-onkeydown=e=>{
- keys[e.key.toLowerCase()]=true;
- if(e.key===' ')shoot();
- if(e.key.toLowerCase()==='f')document.getElementById('fp').click();
- if(e.key.toLowerCase()==='q')switchPlayer();
-};
-onkeyup=e=>keys[e.key.toLowerCase()]=false;
-document.querySelectorAll('[data-k]').forEach(b=>{
- let k=b.dataset.k;
- b.onpointerdown=e=>{e.preventDefault();held[k]=true;b.setPointerCapture(e.pointerId)};
- ['pointerup','pointercancel','lostpointercapture'].forEach(ev=>b.addEventListener(ev,()=>held[k]=false));
-});
-document.getElementById('sprint').onpointerdown=()=>sprinting=true;
-['pointerup','pointercancel','pointerleave'].forEach(ev=>document.getElementById('sprint').addEventListener(ev,()=>sprinting=false));
-document.getElementById('shoot').onpointerdown=shoot;
-document.getElementById('pass').onpointerdown=passBall;
-canvas.onpointerdown=e=>{
- if(e.clientY<H-140){drag={x:e.clientX,y:e.clientY};canvas.setPointerCapture(e.pointerId)}
-};
-canvas.onpointermove=e=>{
- if(!drag)return;
- yaw+=(e.clientX-drag.x)*.006;
- pitch=Math.max(-.7,Math.min(.7,pitch+(e.clientY-drag.y)*.004));
- drag={x:e.clientX,y:e.clientY};
-};
-canvas.onpointerup=()=>drag=null;
-canvas.onpointercancel=()=>drag=null;
-function giveBall(p){if(ball.owner)ball.owner.hasBall=false;ball.owner=p;p.hasBall=true}
-function shoot(){
- let p=players[active];
- if(ball.owner!==p&&distance(p,ball)>45){say('GET CLOSER TO THE BALL');return}
- if(ball.owner)ball.owner.hasBall=false;
- ball.owner=null;
- let a=Math.atan2(ball.y-p.y,ball.x-p.x)+yaw*.15;
- ball.x=p.x+Math.cos(a)*18;ball.y=p.y+Math.sin(a)*18;
- ball.vx=Math.cos(a)*450;ball.vy=Math.sin(a)*450;
- say('SHOT!');
-}
-function passBall(){
- let p=players[active];
- if(ball.owner!==p&&distance(p,ball)>45){say('GET CLOSER TO THE BALL');return}
- let mates=players.filter(q=>q.team==='blue'&&q!==p).sort((a,b)=>distance(p,a)-distance(p,b));
- let t=mates[0];
- if(!t){shoot();return}
- if(ball.owner)ball.owner.hasBall=false;
+function pass(){
+ let p=blue[selected];
+ let mates=blue.filter(q=>q!==p);
+ mates.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-
+ Math.hypot(b.x-p.x,b.y-p.y));
+ let t=mates.find(q=>q.x>p.x)||mates[0];
  ball.owner=null;ball.x=p.x;ball.y=p.y;
- let dx=t.x-p.x,dy=t.y-p.y,l=Math.hypot(dx,dy)||1;
- ball.vx=dx/l*350;ball.vy=dy/l*350;say('PASS!');
+ let d=Math.hypot(t.x-p.x,t.y-p.y)||1;
+ ball.vx=(t.x-p.x)/d*9;
+ ball.vy=(t.y-p.y)/d*9;
+ setTimeout(()=>{if(ball.owner===null){
+ ball.owner=blue.indexOf(t);
+ }},350);
 }
-function resetPositions(){
- players.forEach(p=>{p.x=p.team==='blue'?260:740;p.y=90+p.n*105});
- ball={x:500,y:300,vx:0,vy:0,r:8,owner:null};active=nearest('blue');
+function shoot(){
+ let p=blue[selected];
+ ball.owner=null;ball.x=p.x;ball.y=p.y;
+ let d=Math.hypot(W-p.x,H/2-p.y)||1;
+ ball.vx=(W-p.x)/d*14;
+ ball.vy=(H/2-p.y)/d*14;
+}
+function switchPlayer(){
+ let best=0,d=Infinity;
+ blue.forEach((p,i)=>{
+ let n=Math.hypot(p.x-ball.x,p.y-ball.y);
+ if(n<d){d=n;best=i}
+ });
+ selected=best;
+}
+function drawPitch(){
+ ctx.fillStyle="#277c3e";ctx.fillRect(0,0,W,H);
+ for(let i=0;i<10;i++){
+ ctx.fillStyle=i%2?"#2c8745":"#328e49";
+ ctx.fillRect(i*90,0,90,H);
+ }
+ ctx.strokeStyle="white";ctx.lineWidth=3;
+ ctx.strokeRect(15,15,W-30,H-30);
+ ctx.beginPath();ctx.moveTo(W/2,15);
+ ctx.lineTo(W/2,H-15);ctx.stroke();
+ ctx.beginPath();ctx.arc(W/2,H/2,70,0,7);ctx.stroke();
+ ctx.strokeRect(15,160,120,200);
+ ctx.strokeRect(W-135,160,120,200);
+ ctx.strokeRect(15,205,50,110);
+ ctx.strokeRect(W-65,205,50,110);
+}
+function drawPlayer(p,i){
+ ctx.fillStyle=p.team===0?"#168bff":"#f33e50";
+ ctx.beginPath();ctx.arc(p.x,p.y,13,0,7);ctx.fill();
+ ctx.strokeStyle=p.team===0&&i===selected?"#caff45":"white";
+ ctx.lineWidth=3;ctx.stroke();
+ ctx.fillStyle="white";ctx.font="bold 12px Arial";
+ ctx.textAlign="center";ctx.fillText(p.n,p.x,p.y+4);
 }
 function update(dt){
- const p=players[active];
- let x=(held.right||keys.d||keys.arrowright?1:0)-(held.left||keys.a||keys.arrowleft?1:0);
- let y=(held.down||keys.s||keys.arrowdown?1:0)-(held.up||keys.w||keys.arrowup?1:0);
- let l=Math.hypot(x,y)||1,s=sprinting?240:170;
- p.x+=x/l*s*dt;p.y+=y/l*s*dt;
- p.x=Math.max(20,Math.min(FW-20,p.x));p.y=Math.max(20,Math.min(FH-20,p.y));
- for(const q of players){
-  if(q===p)continue;
-  let tx,ty;
-  if(q.team==='red'){tx=ball.x;ty=ball.y}
-  else if(ball.owner&&ball.owner.team==='blue'){tx=320+(q.n%2)*100;ty=ball.owner.y+(q.n-2)*55}
-  else{tx=ball.x+(q.team==='blue'?-60:60);ty=ball.y+(q.n-2)*45}
-  let dx=tx-q.x,dy=ty-q.y,d=Math.hypot(dx,dy)||1;
-  if(d>20){let sp=q.team==='red'?100:70;q.x+=dx/d*sp*dt;q.y+=dy/d*sp*dt}
-  q.x=Math.max(15,Math.min(FW-15,q.x));q.y=Math.max(15,Math.min(FH-15,q.y));
+ if(paused)return;
+ elapsed+=dt;
+ document.getElementById("clock").textContent=
+ String(Math.floor(elapsed/60)).padStart(2,"0")+":"+
+ String(Math.floor(elapsed%60)).padStart(2,"0");
+ if(ball.owner===null){
+ ball.x+=ball.vx;ball.y+=ball.vy;
+ ball.vx*=.985;ball.vy*=.985;
+ if(ball.y<20||ball.y>H-20)ball.vy*=-.8;
+ if(ball.x<10||ball.x>W-10){
+ if(Math.abs(ball.y-H/2)<75){
+ if(ball.x>W/2)scoreB++;else scoreR++;
+ updateScore();restartPositions();
+ }else ball.vx*=-.8;
  }
- if(ball.owner){
-  ball.x=ball.owner.x+Math.cos(yaw)*17;
-  ball.y=ball.owner.y+Math.sin(yaw)*17;
-  ball.vx=ball.vy=0;
+ let all=blue.concat(red);
+ for(let i=0;i<all.length;i++){
+ if(Math.hypot(all[i].x-ball.x,all[i].y-ball.y)<20){
+ ball.owner=i<5?i:i;
+ if(i<5)selected=i;
+ ball.vx=ball.vy=0;break;
+ }
+ }
  }else{
-  ball.x+=ball.vx*dt;ball.y+=ball.vy*dt;
-  ball.vx*=Math.pow(.985,dt*60);ball.vy*=Math.pow(.985,dt*60);
-  if(ball.x<10||ball.x>FW-10)ball.vx*=-.7;
-  if(ball.y<10||ball.y>FH-10)ball.vy*=-.7;
-  ball.x=Math.max(10,Math.min(FW-10,ball.x));
-  ball.y=Math.max(10,Math.min(FH-10,ball.y));
-  let q=players.filter(q=>distance(q,ball)<q.r+ball.r+2).sort((a,b)=>distance(a,ball)-distance(b,ball))[0];
-  if(q&&Math.hypot(ball.vx,ball.vy)<260)giveBall(q);
+ let p=ball.owner<5?blue[ball.owner]:red[ball.owner-5];
+ if(p){ball.x=p.x+(p.team===0?15:-15);ball.y=p.y+5}
  }
- if(ball.owner){
-  let q=players.find(q=>q!==ball.owner&&q.team!==ball.owner.team&&distance(q,ball.owner)<25);
-  if(q&&Math.random()<.04)giveBall(q);
+ // AI movement
+ red.forEach(p=>{
+ let target=ball.owner===null?ball:
+ (ball.owner<5?blue[ball.owner]:ball);
+ let dx=target.x-p.x,dy=target.y-p.y;
+ let d=Math.hypot(dx,dy)||1;
+ p.x+=dx/d*55*dt;p.y+=dy/d*55*dt;
+ p.x=Math.max(20,Math.min(W-20,p.x));
+ p.y=Math.max(20,Math.min(H-20,p.y));
+ });
+ blue.forEach((p,i)=>{
+ if(i!==selected){
+ let dx=p.homeX-p.x,dy=p.homeY-p.y;
+ p.x+=dx*dt*.7;p.y+=dy*dt*.7;
  }
- if(ball.x<12&&ball.y>235&&ball.y<365){redScore++;updateScore();resetPositions();say('RED SCORES!')}
- if(ball.x>FW-12&&ball.y>235&&ball.y<365){blueScore++;updateScore();resetPositions();say('BLUE SCORES!')}
-}
-function project(x,y,cx,cy){
- let dx=x-cx,dy=y-cy,a=-yaw;
- let rx=dx*Math.cos(a)-dy*Math.sin(a),ry=dx*Math.sin(a)+dy*Math.cos(a);
- return {x:W/2+rx*scale,y:H/2+ry*scale+pitch*H*.15};
-}
-function line(a,b){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}
-function draw(){
- ctx.clearRect(0,0,W,H);
- ctx.fillStyle='#267b36';ctx.fillRect(0,0,W,H);
- scale=Math.min((W-20)/FW,(H-100)/FH)*(first?1.45:1);
- let p=players[active],cx=p.x+(first?Math.cos(yaw)*110:0),cy=p.y+(first?Math.sin(yaw)*110:0);
- let pt=(x,y)=>project(x,y,cx,cy);
- let corners=[[0,0],[FW,0],[FW,FH],[0,FH]].map(v=>pt(...v));
- ctx.fillStyle='#328846';ctx.beginPath();corners.forEach((v,i)=>i?ctx.lineTo(v.x,v.y):ctx.moveTo(v.x,v.y));ctx.closePath();ctx.fill();
- ctx.strokeStyle='white';ctx.lineWidth=2;
- for(let l of [[0,0,FW,0],[FW,0,FW,FH],[FW,FH,0,FH],[0,FH,0,0],[500,0,500,FH]]){
-  line(pt(l[0],l[1]),pt(l[2],l[3]));
+ });
+ // Possession challenges
+ if(ball.owner!==null){
+ let owner=ball.owner<5?blue[ball.owner]:red[ball.owner-5];
+ let opponents=owner.team===0?red:blue;
+ opponents.forEach(p=>{
+ if(Math.hypot(p.x-owner.x,p.y-owner.y)<20&&Math.random()<dt*1.5){
+ ball.owner=owner.team===0?5+red.indexOf(p):blue.indexOf(p);
  }
- let cc=pt(500,300);ctx.beginPath();ctx.ellipse(cc.x,cc.y,75*scale,75*scale,0,0,Math.PI*2);ctx.stroke();
- for(let x of [0,FW]){
-  let d=x===0?1:-1;
-  let a=pt(x,190),b=pt(x+d*100,190),c=pt(x+d*100,410),e=pt(x,410);
-  ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.lineTo(c.x,c.y);ctx.lineTo(e.x,e.y);ctx.stroke();
- }
- if(ball.owner&&ball.owner.team==='red'){
-  let a=pt(p.x,p.y),b=pt(ball.x,ball.y);
-  ctx.strokeStyle='#ff2020';ctx.lineWidth=4;ctx.setLineDash([9,7]);line(a,b);ctx.setLineDash([]);
- }
- for(const q of players){
-  if(first&&q===p)continue;
-  let v=pt(q.x,q.y),r=Math.max(6,q.r*scale);
-  ctx.fillStyle=q.team==='blue'?'#1685ff':'#f13d42';
-  ctx.beginPath();ctx.arc(v.x,v.y,r,0,Math.PI*2);ctx.fill();
-  ctx.strokeStyle=q===p?'#ffe45c':'white';ctx.lineWidth=q===p?3:1.5;ctx.stroke();
-  ctx.fillStyle='white';ctx.font='bold 11px Arial';ctx.textAlign='center';ctx.fillText(q.n+1,v.x,v.y+4);
- }
- let b=pt(ball.x,ball.y),r=Math.max(4,ball.r*scale);
- ctx.fillStyle='white';ctx.beginPath();ctx.arc(b.x,b.y,r,0,Math.PI*2);ctx.fill();
- ctx.strokeStyle='#222';ctx.stroke();
- if(first){
-  ctx.strokeStyle='white';ctx.lineWidth=2;ctx.beginPath();
-  ctx.moveTo(W/2-9,H/2);ctx.lineTo(W/2+9,H/2);
-  ctx.moveTo(W/2,H/2-9);ctx.lineTo(W/2,H/2+9);ctx.stroke();
+ });
  }
 }
-function loop(t){
- let dt=Math.min(.035,(t-last)/1000||0);last=t;
- update(dt);draw();
- if(msgTime>0){msgTime-=dt;if(msgTime<=0)document.getElementById('msg').textContent=''}
- requestAnimationFrame(loop);
+function restartPositions(){
+ blue.forEach(p=>{p.x=p.homeX;p.y=p.homeY});
+ red.forEach(p=>{p.x=p.homeX;p.y=p.homeY});
+ ball.x=W/2;ball.y=H/2;ball.vx=ball.vy=0;ball.owner=0;
 }
-reset();requestAnimationFrame(loop);
+function render(){
+ drawPitch();
+ // goal nets
+ ctx.fillStyle="#ddd";ctx.fillRect(0,H/2-75,15,150);
+ ctx.fillRect(W-15,H/2-75,15,150);
+ blue.forEach(drawPlayer);red.forEach(drawPlayer);
+ ctx.fillStyle="white";ctx.beginPath();
+ ctx.arc(ball.x,ball.y,8,0,7);ctx.fill();
+ ctx.strokeStyle="#111";ctx.stroke();
+}
+function frame(t){
+ let dt=Math.min((t-last)/1000||0,.04);last=t;
+ update(dt);render();requestAnimationFrame(frame);
+}
+window.addEventListener("keydown",e=>{
+ let k=e.key.toLowerCase();keys[k]=true;
+ if(k===" "){e.preventDefault();shoot()}
+ if(k==="e")pass();
+ if(k==="q")switchPlayer();
+ if(k==="shift")sprint=true;
+ if(k==="arrowup"||k==="w")move(0,-1);
+ if(k==="arrowdown"||k==="s")move(0,1);
+ if(k==="arrowleft"||k==="a")move(-1,0);
+ if(k==="arrowright"||k==="d")move(1,0);
+});
+window.addEventListener("keyup",e=>{
+ if(e.key==="Shift")sprint=false;
+});
+function loopMove(){
+ if(keys.ArrowUp||keys.w)move(0,-1);
+ if(keys.ArrowDown||keys.s)move(0,1);
+ if(keys.ArrowLeft||keys.a)move(-1,0);
+ if(keys.ArrowRight||keys.d)move(1,0);
+ requestAnimationFrame(loopMove);
+}
+document.querySelectorAll(".controls button").forEach(b=>{
+ b.addEventListener("pointerdown",e=>{e.preventDefault();let txt=b.textContent;
+ if(txt==="▲"||txt==="↑")move(0,-1);
+ if(txt==="▼")move(0,1);if(txt==="◀")move(-1,0);if(txt==="▶")move(1,0);
+ });
+});
+restart();loopMove();requestAnimationFrame(frame);
+})();
 </script>
 </body>
-  </html>
+</html>
